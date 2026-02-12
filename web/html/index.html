@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="zh-Hans-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" href="/img/home.png" />
+    <title>Sensor</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+
+<body>
+    <script>
+        let chart;
+        function updateChart(date) {
+            fetch('/api/sensor/get?date=' + date)
+                .then(response => response.json())
+                .then(data => {
+                    const labels = data.data.map(function (entry) {
+                        const parts = entry.split(':');
+                        const minutes = parseInt(parts[0]);
+                        const hours = Math.floor(minutes / 60);
+                        const mins = minutes % 60;
+                        return `${hours.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}`;
+                    });
+                    const temperatures = data.data.map(function (entry) {
+                        const parts = entry.split(':');
+                        return Number(parts[1]) / 10;
+                    });
+
+                    const humidities = data.data.map(function (entry) {
+                        const parts = entry.split(':');
+                        return Number(parts[2] ?? 0.0) / 10;
+                    });
+
+                    const ctx = document.getElementById('sensorChart').getContext('2d');
+                    if (chart) {
+                        chart.destroy();
+                    }
+
+                    chart = new Chart(ctx, {
+                        type: 'line',
+                        data: {
+                            labels: labels,
+                            datasets: [{
+                                label: '温度 (°C)',
+                                data: temperatures,
+                                borderColor: 'rgb(255, 99, 132)',
+                                tension: 0.1
+                            },
+                            {
+                                label: '湿度 (%)',
+                                data: humidities,
+                                borderColor: 'rgb(75, 192, 192)',
+                                tension: 0.1
+                            }
+                            ]
+                        }
+                    });
+                })
+                .catch(error => console.error('Error fetching sensor data:', error));
+        }
+    </script>
+
+    <select id="dateSelect">
+        <script>
+            const dateSelect = document.getElementById('dateSelect');
+            const today = new Date();
+            for (let i = 0; i < 7; i++) {
+                const date = new Date(today);
+                date.setDate(today.getDate() - i);
+                const option = document.createElement('option');
+                const dateString = date.toLocaleDateString('zh', { year: 'numeric', month: '2-digit', day: '2-digit' }).replaceAll('/', '-');
+
+                option.value = dateString.replaceAll('-', '_');
+                option.textContent = dateString;
+                dateSelect.appendChild(option);
+            }
+            dateSelect.addEventListener('change', function () {
+                const selectedDate = this.value;
+                if (selectedDate) {
+                    updateChart(selectedDate);
+                }
+            });
+            updateChart(dateSelect.options[0].value);
+        </script>
+    </select>
+    <h1>Sensor</h1>
+    <canvas id="sensorChart" width="400" height="200"></canvas>
+</body>
+
+</html>
