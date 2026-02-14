@@ -7,6 +7,7 @@
     <link rel="icon" href="/img/home.png" />
     <title>Sensor</title>
     <script src="https://cdn.jsdelivr.net.cn/npm/chart.js"></script>
+    <script src="https://cdn.bootcdn.net/ajax/libs/reconnecting-websocket/1.0.0/reconnecting-websocket.js"></script>
     <style type="text/css">
         body {
             font-family: "Segoe UI", Segoe, Tahoma, Arial, Verdana, sans-serif;
@@ -130,44 +131,45 @@
             return proto + location.host + '/ws/api/sensor/get';
         }
 
-        let ws;
-        let reconnectTimer = null;
-        let reconnectDelay = 1000;
-        let offset = 0;
+        let ctx;
 
-        function connectWs(idx = 0) {
-            console.log('Connecting WS with offset: ', idx);
+        function closeWs() {
+            if (ctx) {
+                let ws = ctx.ws;
+                if (ws) {
+                    console.log('WebSocket close');
+                    document.getElementById('wsStatus').textContent = 'DISCONNECTED';
+                    ws.onclose = () => { };
+                    ws.onerror = () => { };
+                    ws.onopen = null;
+                    ws.onmessage = null;
+                    ws.close();
+                }
+                ctx = null
+            }
+        }
+
+        function connectWs(date) {
+            console.log('ConnectWs', date);
+
+            closeWs();
+
+            let ws = new ReconnectingWebSocket(makeWsUrl(), null, {
+                reconnectInterval: 3000,
+            });
+
+            let ctx = {
+                ws: ws,
+                offset: 0,
+            }
+
             const statusEl = document.getElementById('wsStatus');
-            if (ws) {
-                ws.onclose = null;
-                ws.onerror = null;
-                ws.onopen = null;
-                ws.onmessage = null;
-                ws.close();
-                ws = null;
-            }
 
-            if (reconnectTimer) {
-                clearTimeout(reconnectTimer);
-                reconnectTimer = null;
-            }
-
-            offset = idx;
-
-            const url = makeWsUrl();
-            try {
-                ws = new WebSocket(url);
-            } catch (e) {
-                console.error('WebSocket create ', e);
-                scheduleReconnect();
-                return;
-            }
-
-            ws.addEventListener('message', (ev) => {
+            ws.onmessage = (ev) => {
                 try {
                     const data = ev.data.split(';');
                     console.log('Message length: ', data.length);
-                    offset += data.length;
+                    ctx.offset += data.length;
                     data.forEach(entry => {
                         const parts = entry.split(':');
                         if (parts.length < 2) return;
@@ -189,43 +191,33 @@
                     console.error('Message error', e, ev.data);
                     ws.close();
                 }
-            });
+            };
 
-            ws.addEventListener('close', () => {
-                console.log('WebSocket close');
+            ws.onclose = (e) => {
+                console.log('WebSocket close', e);
                 statusEl.textContent = 'DISCONNECTED';
-                scheduleReconnect();
-            });
+            };
 
-            ws.addEventListener('error', (e) => {
+            ws.onerror = (e) => {
                 console.log('WebSocket error', e);
                 statusEl.textContent = 'ERROR';
                 ws.close();
-            });
+            };
 
-            ws.addEventListener('open', () => {
+            ws.onopen = () => {
                 console.log('WebSocket open')
                 statusEl.textContent = 'CONNECTED';
-                reconnectDelay = 1000;
+                ws.send(JSON.stringify({ date: date, offset: ctx.offset }));
+            };
 
-                const d = document.getElementById('dateSelect').value;
-                ws.send(JSON.stringify({ date: d, offset: offset }));
-            });
-        }
-
-        function scheduleReconnect() {
-            if (reconnectTimer)
-                return;
-            reconnectTimer = setTimeout(() => {
-                connectWs(offset);
-                reconnectDelay = Math.min(16000, reconnectDelay * 2);
-            }, reconnectDelay);
+            return ctx;
         }
 
         function startChart() {
             createChart();
             // 初始化：加载今天的数据并连接 WS
-            connectWs();
+            const d = document.getElementById('dateSelect').value;
+            ctx = connectWs(d);
         }
 
         window.onload = function () {
