@@ -26,54 +26,109 @@
         function createChart(labels = [], temperatures = [], humidities = []) {
             const ctx = document.getElementById('sensorChart');
             if (chart) {
-                // 清除旧数据
                 chart.data.labels = [];
                 chart.data.datasets[0].data = [];
                 chart.data.datasets[1].data = [];
                 chart.update();
                 return;
             }
+
             chart = new Chart(ctx, {
-                title: {
-                    text: "sensors"
-                },
-                type: "line",
                 data: {
                     labels: labels,
-                    datasets: [
-                        {
-                            label: "温度 (°C)",
-                            data: temperatures,
-                            borderWidth: 1,
-                            pointBorderWidth: 1,
-                            pointRadius: 0
-                        },
-                        {
-                            label: "湿度 (%)",
-                            data: humidities,
-                            borderWidth: 1,
-                            pointBorderWidth: 1,
-                            pointRadius: 0
-                        }
-                    ],
-                    options: {
-                        tooltips: {
-                            mode: 'index',
-                            intersect: false
-                        },
-                        hover: {
-                            mode: 'index',
-                            intersect: false
-                        },
-                        scales: {
-                            y: {
-                                beginAtZero: false
-                            }
+                    datasets: [{
+                        type: 'line',
+                        label: '温度',
+                        borderColor: 'red',
+                        data: temperatures,
+                        borderWidth: 2,
+                        tension: 0,
+                        pointRadius: 0,
+                        borderColor: '#FF6384',
+                        backgroundColor: '#FFB1C1',
+                    },
+                    {
+                        type: 'line',
+                        label: '湿度',
+                        borderColor: 'blue',
+                        data: humidities,
+                        borderWidth: 2,
+                        tension: 0,
+                        pointRadius: 0,
+                        borderColor: '#36A2EB',
+                        backgroundColor: '#9BD0F5',
+                    }
+                    ]
+                },
+                plugins: [{
+                    afterDraw: chart => {
+                        if (chart.tooltip?._active?.length) {
+                            let x = chart.tooltip._active[0].element.x;
+                            let yAxis = chart.scales.y;
+                            let ctx = chart.ctx;
+                            ctx.save();
+                            ctx.beginPath();
+                            ctx.moveTo(x, yAxis.top);
+                            ctx.lineTo(x, yAxis.bottom);
+                            ctx.lineWidth = 1;
+                            ctx.strokeStyle = 'rgba(0, 0, 255, 0.4)';
+                            ctx.stroke();
+                            ctx.restore();
                         }
                     }
+                }],
+                options: {
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            title: {
+                                display: true,
+                                text: '温度 (°C)',
+                                font: {
+                                    family: 'Kanit',
+                                    lineHeight: 1.2
+                                },
+                                padding: { top: 30, left: 0, right: 0, bottom: 0 }
+                            },
+                            position: 'left',
+                        },
+                        y1: {
+                            beginAtZero: true,
+                            title: {
+                                display: true,
+                                text: '湿度 (%)',
+                                font: {
+                                    family: 'Kanit',
+                                    lineHeight: 1.2
+                                },
+                                padding: { top: 30, left: 0, right: 0, bottom: 0 }
+                            },
+                            type: 'linear',
+                            display: true,
+                            position: 'right',
+                            grid: {
+                                drawOnChartArea: false,
+                            },
+                        },
+                        x: {
+                            grid: {
+                                drawOnChartArea: false,
+                            },
+                        },
+                    },
+                    plugins: {
+                        title: {
+                            display: true,
+                            text: 'Sensor'
+                        }
+                    },
+                    interaction: {
+                        intersect: false,
+                        mode: 'index',
+                    },
+                    spanGaps: true,
                 }
             });
-            chart.update();
         }
 
         function makeWsUrl() {
