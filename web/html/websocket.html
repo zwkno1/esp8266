@@ -89,8 +89,8 @@
         }
 
         let ws;
-        let reconnectDelay = 1000;
         let reconnectTimer = null;
+        let reconnectDelay = 1000;
         let offset = 0;
 
         function connectWs(idx = 0) {
@@ -145,6 +145,11 @@
                 }
             });
 
+            ws.addEventListener('ping', () => {
+                console.log('Received ping, sending pong');
+                // ws.send('pong');
+            });
+
             ws.addEventListener('close', () => {
                 statusEl.textContent = 'DISCONNECTED';
                 console.error('WebSocket colose');
@@ -160,17 +165,18 @@
             ws.addEventListener('open', () => {
                 statusEl.textContent = 'CONNECTED';
                 reconnectDelay = 1000;
+
                 const d = document.getElementById('dateSelect').value;
                 ws.send(JSON.stringify({ date: d, offset: offset }));
             });
         }
 
         function scheduleReconnect() {
-            if (reconnectTimer) return;
+            if (reconnectTimer)
+                return;
             reconnectTimer = setTimeout(() => {
-                reconnectTimer = null;
                 connectWs(offset);
-                reconnectDelay = Math.min(30000, reconnectDelay * 1.5);
+                reconnectDelay = Math.min(16000, reconnectDelay * 2);
             }, reconnectDelay);
         }
 

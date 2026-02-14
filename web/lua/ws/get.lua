@@ -2,10 +2,41 @@ local websocket = require "resty.websocket.server"
 local redis = require "resty.redis"
 local cjson = require "cjson"
 
+local function push(ws, data)
+    local msg = ""
+    local count = 0
+
+    local function send_data()
+        if #msg > 0 then
+            local ok, err = ws:send_text(msg)
+            if not ok then
+                return ngx.exit(444)
+            end
+            msg = ""
+            count = 0
+        end
+    end
+
+    for i, v in ipairs(data) do
+        count = count + 1
+
+        if #msg > 0 then
+            msg = msg .. ";" .. v
+        else
+            msg = v
+        end
+
+        if count >= 360 then
+            send_data()
+        end
+    end
+    send_data()
+end
+
 local function handle_connection()
     ngx.log(ngx.INFO, "WebSocket connection established")
     local ws, err = websocket:new {
-        timeout = 60000,
+        timeout = 30000,
         max_payload_len = 65535
     }
 
@@ -24,7 +55,6 @@ local function handle_connection()
     if not data then
         return ngx.exit(444)
     end
-    ngx.log(ngx.ERR, "Received data: ", data, ", len: ", #data, ", type: ", typ)
 
     data = cjson.decode(data)
     if not data.date then
@@ -42,43 +72,28 @@ local function handle_connection()
     local key = "temp_" .. data["date"]
     local offset = tonumber(data["offset"]) or 0
 
+    local idleCount = 0
+
     while true do
         local res, err = red:lrange(key, offset, -1)
         if err then
             return ngx.exit(444)
         end
 
-        local data = ""
-        local count = 0
-
-        local function send_data()
-            if #data > 0 then
-                local ok, err = ws:send_text(data)
-                if not ok then
-                    return ngx.exit(444)
-                end
-                data = ""
-                count = 0
-            end
+        if #res ~= 0 then
+            push(ws, res)
+            offset = offset + #res
+            idleCount = 0
+        else
+            idleCount = idleCount + 1
         end
 
-        for i, v in ipairs(res) do
-            offset = offset + 1
-            count = count + 1
-
-            if #data > 0 then
-                data = data .. ";" .. v
-            else
-                data = v
-            end
-
-            if count >= 360 then
-                send_data()
-            end
+        if idleCount >= 10 then
+            ws:send_ping()
+            idleCount = 0
         end
-        send_data()
 
-        ngx.sleep(1)
+        ngx.sleep(3)
     end
 end
 
