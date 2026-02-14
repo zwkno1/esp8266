@@ -109,7 +109,7 @@
             try {
                 ws = new WebSocket(url);
             } catch (e) {
-                console.error('WebSocket 创建失败', e);
+                console.error('WebSocket create ', e);
                 scheduleReconnect();
                 return;
             }
@@ -129,7 +129,7 @@
                         let temp = Number(parts[1]) / 10;
                         let hum = Number(parts[2] ?? 0.0) / 10;
                         if (timeLabel && temp != null && hum != null) {
-                            console.log('appending: ', timeLabel, temp, hum);
+                            console.debug('appending: ', timeLabel, temp, hum);
                             chart.data.labels.push(timeLabel);
                             chart.data.datasets[0].data.push(temp);
                             chart.data.datasets[1].data.push(hum);
@@ -143,18 +143,19 @@
             });
 
             ws.addEventListener('close', () => {
+                console.log('WebSocket close');
                 statusEl.textContent = 'DISCONNECTED';
-                console.error('WebSocket colose');
                 scheduleReconnect();
             });
 
             ws.addEventListener('error', (e) => {
-                console.error('WebSocket 错误', e);
+                console.log('WebSocket error ', e);
                 statusEl.textContent = 'ERROR';
                 ws.close();
             });
 
             ws.addEventListener('open', () => {
+                console.log('WebSocket open')
                 statusEl.textContent = 'CONNECTED';
                 reconnectDelay = 1000;
 
