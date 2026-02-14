@@ -85,7 +85,7 @@ local function handle_connection()
             offset = offset + #res
             idleCount = 0
         else
-            idleCount = idleCount + 1
+            idleCount = idleCount + 3
         end
 
         if idleCount >= 10 then
