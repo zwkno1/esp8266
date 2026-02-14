@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="icon" href="/img/home.png" />
     <title>Sensor</title>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net.cn/npm/chart.js"></script>
     <style type="text/css">
         body {
             font-family: "Segoe UI", Segoe, Tahoma, Arial, Verdana, sans-serif;
@@ -21,54 +21,167 @@
 <body class="b_dark">
     <script>
         let chart;
-        function updateChart(date) {
-            fetch('/api/sensor/get?date=' + date)
-                .then(response => response.json())
-                .then(data => {
-                    const labels = data.data.map(function (entry) {
+        const MAX_POINTS = 300;
+
+        function createChart(labels = [], temperatures = [], humidities = []) {
+            const ctx = document.getElementById('sensorChart');
+            if (chart) {
+                // 清除旧数据
+                chart.data.labels = [];
+                chart.data.datasets[0].data = [];
+                chart.data.datasets[1].data = [];
+                chart.update();
+                return;
+            }
+            chart = new Chart(ctx, {
+                title: {
+                    text: "sensors"
+                },
+                type: "line",
+                data: {
+                    labels: labels,
+                    datasets: [
+                        {
+                            label: "温度 (°C)",
+                            data: temperatures,
+                            borderWidth: 1,
+                            pointBorderWidth: 1,
+                            pointRadius: 0
+                        },
+                        {
+                            label: "湿度 (%)",
+                            data: humidities,
+                            borderWidth: 1,
+                            pointBorderWidth: 1,
+                            pointRadius: 0
+                        }
+                    ],
+                    options: {
+                        tooltips: {
+                            mode: 'index',
+                            intersect: false
+                        },
+                        hover: {
+                            mode: 'index',
+                            intersect: false
+                        },
+                        scales: {
+                            y: {
+                                beginAtZero: false
+                            }
+                        }
+                    }
+                }
+            });
+            chart.update();
+        }
+
+        function makeWsUrl() {
+            const proto = (location.protocol === 'https:') ? 'wss://' : 'ws://';
+            return proto + location.host + '/ws/api/sensor/get';
+        }
+
+        let ws;
+        let reconnectTimer = null;
+        let reconnectDelay = 1000;
+        let offset = 0;
+
+        function connectWs(idx = 0) {
+            console.log('Connecting WS with offset: ', idx);
+            const statusEl = document.getElementById('wsStatus');
+            if (ws) {
+                ws.onclose = null;
+                ws.onerror = null;
+                ws.onopen = null;
+                ws.onmessage = null;
+                ws.close();
+                ws = null;
+            }
+
+            if (reconnectTimer) {
+                clearTimeout(reconnectTimer);
+                reconnectTimer = null;
+            }
+
+            offset = idx;
+
+            const url = makeWsUrl();
+            try {
+                ws = new WebSocket(url);
+            } catch (e) {
+                console.error('WebSocket create ', e);
+                scheduleReconnect();
+                return;
+            }
+
+            ws.addEventListener('message', (ev) => {
+                try {
+                    const data = ev.data.split(';');
+                    console.log('Message length: ', data.length);
+                    offset += data.length;
+                    data.forEach(entry => {
                         const parts = entry.split(':');
+                        if (parts.length < 2) return;
                         const minutes = parseInt(parts[0]);
                         const hours = Math.floor(minutes / 60);
                         const mins = minutes % 60;
-                        return `${hours.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}`;
-                    });
-                    const temperatures = data.data.map(function (entry) {
-                        const parts = entry.split(':');
-                        return Number(parts[1]) / 10;
-                    });
-
-                    const humidities = data.data.map(function (entry) {
-                        const parts = entry.split(':');
-                        return Number(parts[2] ?? 0.0) / 10;
-                    });
-
-                    const ctx = document.getElementById('sensorChart').getContext('2d');
-                    if (chart) {
-                        chart.destroy();
-                    }
-
-                    chart = new Chart(ctx, {
-                        type: 'line',
-                        data: {
-                            labels: labels,
-                            datasets: [{
-                                label: '温度 (°C)',
-                                data: temperatures,
-                                borderColor: 'rgb(255, 99, 132)',
-                                tension: 0.1
-                            },
-                            {
-                                label: '湿度 (%)',
-                                data: humidities,
-                                borderColor: 'rgb(75, 192, 192)',
-                                tension: 0.1
-                            }
-                            ]
+                        const timeLabel = `${hours.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}`;
+                        let temp = Number(parts[1]) / 10;
+                        let hum = Number(parts[2] ?? 0.0) / 10;
+                        if (timeLabel && temp != null && hum != null) {
+                            console.debug('appending: ', timeLabel, temp, hum);
+                            chart.data.labels.push(timeLabel);
+                            chart.data.datasets[0].data.push(temp);
+                            chart.data.datasets[1].data.push(hum);
                         }
                     });
-                })
-                .catch(error => console.error('Error fetching sensor data:', error));
+                    chart.update();
+                } catch (e) {
+                    console.error('Message error', e, ev.data);
+                    ws.close();
+                }
+            });
+
+            ws.addEventListener('close', () => {
+                console.log('WebSocket close');
+                statusEl.textContent = 'DISCONNECTED';
+                scheduleReconnect();
+            });
+
+            ws.addEventListener('error', (e) => {
+                console.log('WebSocket error', e);
+                statusEl.textContent = 'ERROR';
+                ws.close();
+            });
+
+            ws.addEventListener('open', () => {
+                console.log('WebSocket open')
+                statusEl.textContent = 'CONNECTED';
+                reconnectDelay = 1000;
+
+                const d = document.getElementById('dateSelect').value;
+                ws.send(JSON.stringify({ date: d, offset: offset }));
+            });
         }
+
+        function scheduleReconnect() {
+            if (reconnectTimer)
+                return;
+            reconnectTimer = setTimeout(() => {
+                connectWs(offset);
+                reconnectDelay = Math.min(16000, reconnectDelay * 2);
+            }, reconnectDelay);
+        }
+
+        function startChart() {
+            createChart();
+            // 初始化：加载今天的数据并连接 WS
+            connectWs();
+        }
+
+        window.onload = function () {
+            startChart();
+        };
     </script>
 
     <select id="dateSelect">
@@ -86,15 +199,14 @@
                 dateSelect.appendChild(option);
             }
             dateSelect.addEventListener('change', function () {
-                const selectedDate = this.value;
-                if (selectedDate) {
-                    updateChart(selectedDate);
-                }
+                startChart();
             });
-            updateChart(dateSelect.options[0].value);
         </script>
     </select>
-    <canvas id="sensorChart" width="400" height="200"></canvas>
+    <div style="display:flex;gap:12px;align-items:center;margin-bottom:12px;margin-top:12px">
+        <div> WS: <span id="wsStatus">DISCONNECTED</span></div>
+    </div>
+    <canvas id="sensorChart"></canvas>
 </body>
 
 </html>
