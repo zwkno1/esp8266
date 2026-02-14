@@ -61,6 +61,24 @@ local function handle_connection()
         return ngx.exit(444)
     end
 
+    local function recv_pong()
+        while true do
+            local data, typ, err = ws:recv_frame()
+            if not data then
+                break
+            end
+            if typ == "pong" then
+                ngx.log(ngx.ERR, "received pong")
+            else
+                ngx.log(ngx.ERR, "received unexpected frame type: ", typ)
+                ws:close()
+                break
+            end
+        end
+    end
+
+    ngx.thread.spawn(recv_pong)
+
     local red = redis:new()
     red:set_timeout(1000) -- 1 second
     local ok, err = red:connect("127.0.0.1", 6379)
@@ -89,7 +107,10 @@ local function handle_connection()
         end
 
         if idleCount >= 10 then
-            ws:send_ping()
+            local n, err = ws:send_ping()
+            if err then
+                break
+            end
             idleCount = 0
         end
 

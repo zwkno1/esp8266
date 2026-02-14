@@ -76,13 +76,6 @@
             chart.update();
         }
 
-        function appendPoint(timeLabel, temp, hum) {
-            console.log('Appending point', timeLabel, temp, hum);
-            chart.data.labels.push(timeLabel);
-            chart.data.datasets[0].data.push(temp);
-            chart.data.datasets[1].data.push(hum);
-        }
-
         function makeWsUrl() {
             const proto = (location.protocol === 'https:') ? 'wss://' : 'ws://';
             return proto + location.host + '/ws/api/sensor/get';
@@ -124,6 +117,7 @@
             ws.addEventListener('message', (ev) => {
                 try {
                     const data = ev.data.split(';');
+                    console.log('receive message length: ', data.length);
                     offset += data.length;
                     data.forEach(entry => {
                         const parts = entry.split(':');
@@ -135,7 +129,10 @@
                         let temp = Number(parts[1]) / 10;
                         let hum = Number(parts[2] ?? 0.0) / 10;
                         if (timeLabel && temp != null && hum != null) {
-                            appendPoint(timeLabel, temp, hum);
+                            console.log('appending: ', timeLabel, temp, hum);
+                            chart.data.labels.push(timeLabel);
+                            chart.data.datasets[0].data.push(temp);
+                            chart.data.datasets[1].data.push(hum);
                         }
                     });
                     chart.update();
@@ -143,11 +140,6 @@
                     console.error('处理 WS 消息失败', e, ev.data);
                     ws.close();
                 }
-            });
-
-            ws.addEventListener('ping', () => {
-                console.log('Received ping, sending pong');
-                // ws.send('pong');
             });
 
             ws.addEventListener('close', () => {
