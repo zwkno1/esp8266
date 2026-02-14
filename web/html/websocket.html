@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="zh-Hans-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" href="/img/home.png" />
+    <title>Sensor</title>
+    <script type="text/javascript" src="https://canvasjs.com/assets/script/jquery-1.11.1.min.js"></script>
+    <script type="text/javascript" src="https://cdn.canvasjs.com/canvasjs.min.js"></script>
+    <style type="text/css">
+        body {
+            font-family: "Segoe UI", Segoe, Tahoma, Arial, Verdana, sans-serif;
+            background-color: white;
+            overflow: hidden;
+            width: 100%;
+            height: 100%
+        }
+    </style>
+</head>
+
+<body class="b_dark">
+    <script>
+        let chart;
+        const MAX_POINTS = 300;
+
+        function createChart(labels = [], temperatures = [], humidities = []) {
+            //const ctx = document.getElementById('sensorChart').getContext('2d');
+            if (chart) {
+                // 清除旧数据
+                chart.options.data[0].dataPoints = [];
+                chart.options.data[1].dataPoints = [];
+                chart.render();
+                return;
+            }
+            chart = new CanvasJS.Chart("chartContainer", {
+                title: {
+                    text: "sensors"
+                },
+                data: [
+                    {
+                        type: "line",
+                        name: "温度 (°C)",
+                        showInLegend: true,
+                        dataPoints: labels.map((label, i) => ({ label, y: temperatures[i] }))
+                    },
+                    {
+                        type: "line",
+                        name: "湿度 (%)",
+                        showInLegend: true,
+                        dataPoints: labels.map((label, i) => ({ label, y: humidities[i] }))
+                    }
+                ]//,
+                //options: {
+                //    animation: false,
+                //    responsive: true,
+                //    maintainAspectRatio: false,
+                //    scales: {
+                //        y: {
+                //            beginAtZero: true
+                //        }
+                //    }
+                //}
+            });
+            chart.render();
+        }
+
+        function appendPoint(timeLabel, temp, hum) {
+            console.log('Appending point', timeLabel, temp, hum);
+            chart.options.data[0].dataPoints.push({ label: timeLabel, y: temp });
+            chart.options.data[1].dataPoints.push({ label: timeLabel, y: hum });
+        }
+
+        function makeWsUrl() {
+            const proto = (location.protocol === 'https:') ? 'wss://' : 'ws://';
+            return proto + location.host + '/ws/api/sensor/get';
+        }
+
+        let ws;
+        let reconnectDelay = 1000;
+        let reconnectTimer = null;
+        let offset = 0;
+
+        function connectWs(idx = 0) {
+            console.log('Connecting WS with offset: ', idx);
+            const statusEl = document.getElementById('wsStatus');
+            if (ws) {
+                ws.onclose = null;
+                ws.onerror = null;
+                ws.onopen = null;
+                ws.onmessage = null;
+                ws.close();
+                ws = null;
+            }
+
+            if (reconnectTimer) {
+                clearTimeout(reconnectTimer);
+                reconnectTimer = null;
+            }
+
+            offset = idx;
+
+            const url = makeWsUrl();
+            try {
+                ws = new WebSocket(url);
+            } catch (e) {
+                console.error('WebSocket 创建失败', e);
+                scheduleReconnect();
+                return;
+            }
+
+            ws.addEventListener('message', (ev) => {
+                try {
+                    const data = ev.data.split(';');
+                    offset += data.length;
+                    data.forEach(entry => {
+                        const parts = entry.split(':');
+                        if (parts.length < 2) return;
+                        const minutes = parseInt(parts[0]);
+                        const hours = Math.floor(minutes / 60);
+                        const mins = minutes % 60;
+                        const timeLabel = `${hours.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}`;
+                        let temp = Number(parts[1]) / 10;
+                        let hum = Number(parts[2] ?? 0.0) / 10;
+                        if (timeLabel && temp != null && hum != null) {
+                            appendPoint(timeLabel, temp, hum);
+                        }
+                    });
+                    chart.render();
+                } catch (e) {
+                    console.error('处理 WS 消息失败', e, ev.data);
+                    ws.close();
+                }
+            });
+
+            ws.addEventListener('close', () => {
+                statusEl.textContent = 'DISCONNECTED';
+                console.error('WebSocket colose');
+                scheduleReconnect();
+            });
+
+            ws.addEventListener('error', (e) => {
+                console.error('WebSocket 错误', e);
+                statusEl.textContent = 'ERROR';
+                ws.close();
+            });
+
+            ws.addEventListener('open', () => {
+                statusEl.textContent = 'CONNECTED';
+                reconnectDelay = 1000;
+                const d = document.getElementById('dateSelect').value;
+                ws.send(JSON.stringify({ date: d, offset: offset }));
+            });
+        }
+
+        function scheduleReconnect() {
+            if (reconnectTimer) return;
+            reconnectTimer = setTimeout(() => {
+                reconnectTimer = null;
+                connectWs(offset);
+                reconnectDelay = Math.min(30000, reconnectDelay * 1.5);
+            }, reconnectDelay);
+        }
+
+        function startChart() {
+            createChart();
+            // 初始化：加载今天的数据并连接 WS
+            connectWs();
+        }
+
+        window.onload = function () {
+            startChart();
+        };
+    </script>
+
+    <select id="dateSelect">
+        <script>
+            const dateSelect = document.getElementById('dateSelect');
+            const today = new Date();
+            for (let i = 0; i < 7; i++) {
+                const date = new Date(today);
+                date.setDate(today.getDate() - i);
+                const option = document.createElement('option');
+                const dateString = date.toLocaleDateString('zh', { year: 'numeric', month: '2-digit', day: '2-digit' }).replaceAll('/', '-');
+
+                option.value = dateString.replaceAll('-', '_');
+                option.textContent = dateString;
+                dateSelect.appendChild(option);
+            }
+            dateSelect.addEventListener('change', function () {
+                startChart();
+            });
+        </script>
+    </select>
+    <div style="display:flex;gap:12px;align-items:center;margin-bottom:12px;">
+        <div> WS: <span id="wsStatus">DISCONNECTED</span></div>
+    </div>
+    <div id="chartContainer" style="width:100%; height:100%"></div>
+</body>
+
+</html>
