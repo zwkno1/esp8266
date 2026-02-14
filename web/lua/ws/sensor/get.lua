@@ -61,13 +61,13 @@ local function handle_connection()
         return ngx.exit(444)
     end
 
-    --[[
     local function recv_pong()
         while true do
             local data, typ, err = ws:recv_frame()
-            if not data then
+            if err then
                 break
             end
+
             if typ == "pong" then
                 ngx.log(ngx.ERR, "received pong")
             else
@@ -78,7 +78,6 @@ local function handle_connection()
         end
     end
     ngx.thread.spawn(recv_pong)
-    ]] --
 
     local red = redis:new()
     red:set_timeout(1000) -- 1 second
