@@ -6,8 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="icon" href="/img/home.png" />
     <title>Sensor</title>
-    <script type="text/javascript" src="https://canvasjs.com/assets/script/jquery-1.11.1.min.js"></script>
-    <script type="text/javascript" src="https://cdn.canvasjs.com/canvasjs.min.js"></script>
+    <script src="https://cdn.jsdelivr.net.cn/npm/chart.js"></script>
     <style type="text/css">
         body {
             font-family: "Segoe UI", Segoe, Tahoma, Arial, Verdana, sans-serif;
@@ -25,50 +24,63 @@
         const MAX_POINTS = 300;
 
         function createChart(labels = [], temperatures = [], humidities = []) {
-            //const ctx = document.getElementById('sensorChart').getContext('2d');
+            const ctx = document.getElementById('sensorChart');
             if (chart) {
                 // 清除旧数据
-                chart.options.data[0].dataPoints = [];
-                chart.options.data[1].dataPoints = [];
-                chart.render();
+                chart.data.labels = [];
+                chart.data.datasets[0].data = [];
+                chart.data.datasets[1].data = [];
+                chart.update();
                 return;
             }
-            chart = new CanvasJS.Chart("chartContainer", {
+            chart = new Chart(ctx, {
                 title: {
                     text: "sensors"
                 },
-                data: [
-                    {
-                        type: "line",
-                        name: "温度 (°C)",
-                        showInLegend: true,
-                        dataPoints: labels.map((label, i) => ({ label, y: temperatures[i] }))
-                    },
-                    {
-                        type: "line",
-                        name: "湿度 (%)",
-                        showInLegend: true,
-                        dataPoints: labels.map((label, i) => ({ label, y: humidities[i] }))
+                type: "line",
+                data: {
+                    labels: labels,
+                    datasets: [
+                        {
+                            label: "温度 (°C)",
+                            data: temperatures,
+                            borderWidth: 1,
+                            pointBorderWidth: 1,
+                            pointRadius: 0
+                        },
+                        {
+                            label: "湿度 (%)",
+                            data: humidities,
+                            borderWidth: 1,
+                            pointBorderWidth: 1,
+                            pointRadius: 0
+                        }
+                    ],
+                    options: {
+                        tooltips: {
+                            mode: 'index',
+                            intersect: false
+                        },
+                        hover: {
+                            mode: 'index',
+                            intersect: false
+                        },
+                        scales: {
+                            y: {
+                                beginAtZero: false
+                            }
+                        }
                     }
-                ]//,
-                //options: {
-                //    animation: false,
-                //    responsive: true,
-                //    maintainAspectRatio: false,
-                //    scales: {
-                //        y: {
-                //            beginAtZero: true
-                //        }
-                //    }
-                //}
+                }
             });
-            chart.render();
+            chart.update();
         }
 
         function appendPoint(timeLabel, temp, hum) {
             console.log('Appending point', timeLabel, temp, hum);
-            chart.options.data[0].dataPoints.push({ label: timeLabel, y: temp });
-            chart.options.data[1].dataPoints.push({ label: timeLabel, y: hum });
+            chart.data.labels.push(timeLabel);
+            chart.data.datasets[0].data.push(temp);
+            chart.data.datasets[1].data.push(hum);
         }
 
         function makeWsUrl() {
@@ -126,7 +138,7 @@
                             appendPoint(timeLabel, temp, hum);
                         }
                     });
-                    chart.render();
+                    chart.update();
                 } catch (e) {
                     console.error('处理 WS 消息失败', e, ev.data);
                     ws.close();
@@ -192,10 +204,10 @@
             });
         </script>
     </select>
-    <div style="display:flex;gap:12px;align-items:center;margin-bottom:12px;">
+    <div style="display:flex;gap:12px;align-items:center;margin-bottom:12px;margin-top:12px">
         <div> WS: <span id="wsStatus">DISCONNECTED</span></div>
     </div>
-    <div id="chartContainer" style="width:100%; height:100%"></div>
+    <canvas id="sensorChart"></canvas>
 </body>
 
 </html>
