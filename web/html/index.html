@@ -7,7 +7,6 @@
     <link rel="icon" href="/img/home.png" />
     <title>Sensor</title>
     <script src="https://cdn.jsdelivr.net.cn/npm/chart.js"></script>
-    <script src="https://cdn.bootcdn.net/ajax/libs/reconnecting-websocket/1.0.0/reconnecting-websocket.js"></script>
     <style type="text/css">
         body {
             font-family: "Segoe UI", Segoe, Tahoma, Arial, Verdana, sans-serif;
@@ -126,71 +125,123 @@
             });
         }
 
-        function makeWsUrl() {
-            const proto = (location.protocol === 'https:') ? 'wss://' : 'ws://';
-            return proto + location.host + '/ws/api/sensor/get';
-        }
-
         let ctx;
+        let ws;
 
-        function closeWs() {
-            if (ctx) {
-                let ws = ctx.ws;
-                if (ws) {
-                    console.log('WebSocket close');
-                    document.getElementById('wsStatus').textContent = 'DISCONNECTED';
-                    ws.onclose = () => { };
-                    ws.onerror = () => { };
-                    ws.onopen = null;
-                    ws.onmessage = null;
-                    ws.close();
+        class SensorSocket {
+            constructor(date) {
+                this.date = date;
+                this.offset = 0;
+            }
+
+            url() {
+                const proto = (location.protocol === 'https:') ? 'wss://' : 'ws://';
+                return proto + location.host + '/ws/api/sensor/get';
+            }
+
+            connect() {
+                if (this.timerId) {
+                    this.timerId = null;
                 }
-                ctx = null
+
+                this.ws = new WebSocket(this.url());
+
+                this.ws.onopen = () => {
+                    if (this.onopen) {
+                        this.onopen();
+                    }
+                    this.ws.send(JSON.stringify({ date: this.date, offset: this.offset }));
+                };
+
+                this.ws.onmessage = (msg) => {
+                    try {
+                        if (typeof msg.data !== "string") {
+                            console.info("Message error", typeof msg.data);
+                            this.offset += 1;
+                            return;
+                        }
+                        const data = msg.data.split(';');
+                        console.log('Message length: ', data.length);
+                        this.offset += Math.max(data.length, 1);
+                        if (this.onmessage) {
+                            this.onmessage(data);
+                        }
+                    }
+                    catch (e) {
+                        console.error('Message error', e, msg.data);
+                        const statusEl = document.getElementById('wsStatus');
+                        statusEl.textContent = 'ERROR';
+                        this.offset += 1;
+                    }
+                };
+
+                this.ws.onclose = () => {
+                    if (this.onclose) {
+                        this.onclose();
+                    }
+                    if (this.timerId) {
+                        return;
+                    }
+                    this.timerId = setTimeout(() => this.connect(), 3000);
+                };
+
+                this.ws.onerror = (err) => {
+                    if (this.onerror) {
+                        this.onerror();
+                    }
+
+                    if (this.timerId) {
+                        return;
+                    }
+                    this.timerId = setTimeout(() => this.connect(), 3000);
+                };
+            }
+
+            close() {
+                this.onclose = null;
+                this.onopen = null;
+                this.onmessage = null;
+                this.onclose = null;
+
+                if (this.ws) {
+                    this.ws.close();
+                    this.ws = null;
+                }
+
+                if (this.timerId) {
+                    clearTimeout(this.timerId);
+                    this.timerId = null;
+                }
             }
         }
 
         function connectWs(date) {
-            console.log('ConnectWs', date);
-
-            closeWs();
-
-            let ws = new ReconnectingWebSocket(makeWsUrl(), null, {
-                reconnectInterval: 3000,
-            });
-
-            let ctx = {
-                ws: ws,
-                offset: 0,
+            if (ws) {
+                ws.close();
             }
+
+            ws = new SensorSocket(date);
 
             const statusEl = document.getElementById('wsStatus');
 
-            ws.onmessage = (ev) => {
-                try {
-                    const data = ev.data.split(';');
-                    console.log('Message length: ', data.length);
-                    ctx.offset += data.length;
-                    data.forEach(entry => {
-                        const parts = entry.split(':');
-                        if (parts.length < 2) return;
-                        const minutes = parseInt(parts[0]);
-                        const hours = Math.floor(minutes / 60);
-                        const mins = minutes % 60;
-                        const timeLabel = `${hours.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}`;
-                        let temp = Number(parts[1]) / 10;
-                        let hum = Number(parts[2] ?? 0.0) / 10;
-                        if (timeLabel && temp != null && hum != null) {
-                            console.debug('appending: ', timeLabel, temp, hum);
-                            chart.data.labels.push(timeLabel);
-                            chart.data.datasets[0].data.push(temp);
-                            chart.data.datasets[1].data.push(hum);
-                        }
-                    });
-                    chart.update();
-                } catch (e) {
-                    console.error('Message error', e, ev.data);
-                    ws.close();
-                }
+            ws.onmessage = (data) => {
+                data.forEach(entry => {
+                    const parts = entry.split(':');
+                    if (parts.length < 2) return;
+                    const minutes = parseInt(parts[0]);
+                    const hours = Math.floor(minutes / 60);
+                    const mins = minutes % 60;
+                    const timeLabel = `${hours.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}`;
+                    let temp = Number(parts[1]) / 10;
+                    let hum = Number(parts[2] ?? 0.0) / 10;
+                    if (timeLabel && temp != null && hum != null) {
+                        console.debug('appending: ', timeLabel, temp, hum);
+                        chart.data.labels.push(timeLabel);
+                        chart.data.datasets[0].data.push(temp);
+                        chart.data.datasets[1].data.push(hum);
+                    }
+                });
+                chart.update();
             };
 
             ws.onclose = (e) => {
@@ -201,23 +252,22 @@
             ws.onerror = (e) => {
                 console.log('WebSocket error', e);
                 statusEl.textContent = 'ERROR';
-                ws.close();
+                //ws.close();
             };
 
             ws.onopen = () => {
                 console.log('WebSocket open')
                 statusEl.textContent = 'CONNECTED';
-                ws.send(JSON.stringify({ date: date, offset: ctx.offset }));
             };
 
-            return ctx;
+            ws.connect();
         }
 
         function startChart() {
             createChart();
             // 初始化：加载今天的数据并连接 WS
-            const d = document.getElementById('dateSelect').value;
-            ctx = connectWs(d);
+            const date = document.getElementById('dateSelect').value;
+            connectWs(date);
         }
 
         window.onload = function () {
